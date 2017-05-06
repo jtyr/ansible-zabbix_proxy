@@ -1,0 +1,115 @@
+---
+
+# Major Zabbix version (used for Zabbix YUM repo)
+zabbix_proxy_major_version: "{{ zabbix_major_version | default(2.4) }}"
+
+# Zabbix YUM repo URL
+zabbix_proxy_yumrepo_url: "{{ zabbix_yumrepo_url | default('http://repo.zabbix.com/zabbix/' ~ zabbix_proxy_major_version ~ '/rhel/' ~ ansible_distribution_major_version ~ '/$basearch/') }}"
+
+# Additional Zabbix YUM repo params
+zabbix_proxy_yumrepo_params: "{{ zabbix_yumrepo_params | default({}) }}"
+
+# Path to the zabix_proxy.conf file
+zabbix_proxy_config_file: /etc/zabbix/zabbix_proxy.conf
+
+# Whether to install EPEL YUM repo
+zabbix_proxy_epel_install: "{{ yumrepo_epel_install | default(true) }}"
+
+# EPEL YUM repo URL
+zabbix_proxy_epel_yumrepo_url: "{{ yumrepo_epel_url | default('https://dl.fedoraproject.org/pub/epel/$releasever/$basearch/') }}"
+
+# EPEL YUM repo GPG key
+zabbix_proxy_epel_yumrepo_gpgkey: "{{ yumrepo_epel_gpgkey | default('https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-$releasever') }}"
+
+# Additional EPEL YUM repo params
+zabbix_proxy_epel_yumrepo_params: "{{ yumrepo_epel_params | default({}) }}"
+
+# DB engine
+zabbix_proxy_db_engine: pgsql
+
+# Package to be installed (exact version can be specified here)
+zabbix_proxy_pkg: zabbix-proxy-{{ zabbix_proxy_db_engine }}
+
+# Default PostgreSQL port
+zabbix_proxy_db_port_pgsql_default: 5432
+
+# Default MySQL port
+zabbix_proxy_db_port_mysql_default: 3306
+
+# Initial DB schema directory
+zabbix_proxy_db_schema_dir: /usr/share/doc/zabbix-proxy-{{ zabbix_proxy_db_engine }}-*
+
+# User used to create DB and user
+zabbix_proxy_db_login_user: "{{
+  'postgres'
+    if zabbix_proxy_db_engine == 'pgsql'
+    else
+  'root' }}"
+
+# Password used to create DB and user
+zabbix_proxy_db_login_password: "{{
+  'postgres'
+     if zabbix_proxy_db_engine == 'pgsql'
+     else
+  None }}"
+
+# Packages required for the PostgreSQL DB creation
+zabbix_proxy_db_pkgs_pgsql:
+  - python-psycopg2
+  - postgresql
+
+# Packages required for the MySQL DB creation
+zabbix_proxy_db_pkgs_mysql:
+  - MySQL-python
+  - mysql
+
+zabbix_proxy_db_pkgs: "{{
+  zabbix_proxy_db_pkgs_pgsql
+    if zabbix_proxy_db_engine == 'pgsql'
+    else
+  zabbix_proxy_db_pkgs_mysql }}"
+
+
+# DB server configuration options
+zabbix_proxy_db_host: localhost
+zabbix_proxy_db_port: "{{
+  zabbix_proxy_db_port_pgsql_default
+    if zabbix_proxy_db_engine == 'pgsql'
+    else
+  zabbix_proxy_db_port_mysql_default }}"
+zabbix_proxy_db_name: zabbix
+zabbix_proxy_db_user: zabbix
+zabbix_proxy_db_password: zabbix
+
+
+# Values of default configuration options
+zabbix_proxy_config_server: 127.0.0.1
+zabbix_proxy_config_hostname: "{{ inventory_hostname_short }}"
+zabbix_proxy_config_logfile: /var/log/zabbix/zabbix_proxy.log
+zabbix_proxy_config_logfilesize: 1
+zabbix_proxy_config_pidfile: /var/run/zabbix/zabbix_proxy.pid
+zabbix_proxy_config_externalscripts: /usr/lib/zabbix/externalscripts
+zabbix_proxy_config_logslowqueries: 3000
+
+# Default configuration options
+zabbix_proxy_config__default:
+  Server: "{{ zabbix_proxy_config_server }}"
+  Hostname: "{{ zabbix_proxy_config_hostname }}"
+  DBHost: "{{ zabbix_proxy_db_host }}"
+  DBPort: "{{ zabbix_proxy_db_port }}"
+  DBName: "{{ zabbix_proxy_db_name }}"
+  DBUser: "{{ zabbix_proxy_db_user }}"
+  DBPassword: "{{ zabbix_proxy_db_password }}"
+  LogFile: "{{ zabbix_proxy_config_logfile }}"
+  LogFileSize: "{{ zabbix_proxy_config_logfilesize }}"
+  PidFile: "{{ zabbix_proxy_config_pidfile }}"
+  ExternalScripts: "{{ zabbix_proxy_config_externalscripts }}"
+  LogSlowQueries: "{{ zabbix_proxy_config_logslowqueries }}"
+
+# Custom Zabbix configuration
+zabbix_proxy_config__custom: {}
+
+# Main Zabbix config
+zabbix_proxy_config: "{{
+  zabbix_proxy_config__default.update(zabbix_proxy_config__custom) }}{{
+  zabbix_proxy_config__default }}"

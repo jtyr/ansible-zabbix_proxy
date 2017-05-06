@@ -1,0 +1,201 @@
+---
+
+- name: Test distribution
+  assert:
+    that: >
+      ansible_os_family == "RedHat"
+
+- name: Add EPEL YUM repo
+  yum_repository:
+    name: epel
+    description: EPEL YUM repo
+    baseurl: "{{ zabbix_proxy_epel_yumrepo_url }}"
+    gpgkey: "{{ zabbix_proxy_epel_yumrepo_gpgkey }}"
+    params: "{{ zabbix_proxy_epel_yumrepo_params }}"
+  when: zabbix_proxy_epel_install == true
+  tags:
+    - zabbix_proxy_pkg
+
+- name: Add Zabbix YUM repo
+  yum_repository:
+    name: zabbix
+    description: Official Zabbix {{ zabbix_proxy_major_version }} YUM repo
+    baseurl: "{{ zabbix_proxy_yumrepo_url }}"
+    gpgcheck: no
+    params: "{{ zabbix_proxy_yumrepo_params }}"
+  tags:
+    - zabbix_proxy_pkg
+
+- name: Install Zabbix Proxy
+  package:
+    name: "{{ zabbix_proxy_pkg }}"
+  notify:
+    - Restart Zabbix Proxy
+  tags:
+    - zabbix_proxy_pkg
+
+- name: Configure Zabbix Proxy
+  template:
+    src: zabbix_proxy.conf.j2
+    dest: "{{ zabbix_proxy_config_file }}"
+  notify:
+    - Restart Zabbix Proxy
+  tags:
+    - zabbix_proxy_config
+
+- name: Install DB dependencies
+  package:
+    name: "{{ item }}"
+  with_items: "{{ zabbix_proxy_db_pkgs }}"
+  tags:
+    - zabbix_proxy_db
+
+- name: Create PostgreSQL DB
+  postgresql_db:
+    name: "{{ zabbix_proxy_db_name }}"
+    login_user: "{{ zabbix_proxy_db_login_user }}"
+    login_password: "{{ zabbix_proxy_db_login_password }}"
+    login_host: "{{ zabbix_proxy_db_host }}"
+    port: "{{ zabbix_proxy_db_port }}"
+  register: zabbix_proxy_db_pgsql_created
+  when: zabbix_proxy_db_engine == 'pgsql'
+  tags:
+    - zabbix_proxy_db
+
+- name: Create PostgreSQL user
+  postgresql_user:
+    name: "{{ zabbix_proxy_db_user }}"
+    db: "{{ zabbix_proxy_db_name }}"
+    password: "{{ zabbix_proxy_db_password }}"
+    priv: ALL
+    login_user: "{{ zabbix_proxy_db_login_user }}"
+    login_password: "{{ zabbix_proxy_db_login_password }}"
+    login_host: "{{ zabbix_proxy_db_host }}"
+    port: "{{ zabbix_proxy_db_port }}"
+  when: zabbix_proxy_db_engine == 'pgsql'
+  tags:
+    - zabbix_proxy_db
+
+- name: Create MySQL DB
+  mysql_db:
+    name: "{{ zabbix_proxy_db_name }}"
+    login_host: "{{ zabbix_proxy_db_host }}"
+    login_port: "{{ zabbix_proxy_db_port }}"
+    login_user: "{{ zabbix_proxy_db_login_user }}"
+    login_password: "{{ zabbix_proxy_db_login_password }}"
+    encoding: utf8
+  register: zabbix_proxy_db_mysql_created
+  when: zabbix_proxy_db_engine == 'mysql'
+  tags:
+    - zabbix_proxy_db
+
+- name: Create MySQL user
+  mysql_user:
+    login_host: "{{ zabbix_proxy_db_host }}"
+    login_port: "{{ zabbix_proxy_db_port }}"
+    login_user: "{{ zabbix_proxy_db_login_user }}"
+    login_password: "{{ zabbix_proxy_db_login_password }}"
+    host: "{{ zabbix_proxy_db_user_host }}"
+    name: "{{ zabbix_proxy_db_user }}"
+    password: "{{ zabbix_proxy_db_password }}"
+    priv: "{{ zabbix_proxy_db_name }}.*:ALL"
+  when: zabbix_proxy_db_engine == 'mysql'
+  tags:
+    - zabbix_proxy_db
+
+- name: Get the schema directory
+  shell: ls -1d {{ zabbix_proxy_db_schema_dir }}
+  register: zabbix_proxy__db_schema_dir
+  changed_when: false
+  failed_when: false
+  tags:
+    - zabbix_proxy_db
+
+- name: Check if there is the create directory with SQL files
+  stat:
+    path: "{{ zabbix_proxy__db_schema_dir.stdout }}/create"
+  register: zabbix_proxy__db_create_dir
+  changed_when: false
+  failed_when: false
+  tags:
+    - zabbix_proxy_db
+
+- name: Check if the schema.sql file already exists
+  stat:
+    path: "{{ zabbix_proxy__db_schema_dir.stdout }}/schema.sql"
+  register: zabbix_proxy__db_create_sql
+  when: >
+    not zabbix_proxy__db_create_dir.stat.exists
+  changed_when: false
+  failed_when: false
+  tags:
+    - zabbix_proxy_db
+
+- name: Unarchive SQL file
+  shell: >
+    gunzip -c
+    {{ zabbix_proxy__db_schema_dir.stdout }}/schema.sql.gz >
+    {{ zabbix_proxy__db_schema_dir.stdout }}/schema.sql
+  tags:
+    - zabbix_proxy_db
+  when: >
+    not zabbix_proxy__db_create_dir.stat.exists and
+    not zabbix_proxy__db_create_sql.stat.exists
+
+- name: Import Zabbix DB schema for PostgreSQL
+  shell: >
+    psql
+    --username {{ zabbix_proxy_db_user }}
+    --host {{ zabbix_proxy_db_host }}
+    --port {{ zabbix_proxy_db_port }}
+    --dbname {{ zabbix_proxy_db_name }}
+    --file {{
+        zabbix_proxy_db_schema_dir ~ '/create/schema.sql'
+          if zabbix_proxy__db_create_dir.stat.exists
+          else
+        zabbix_proxy_db_schema_dir ~ '/schema.sql' }}
+  args:
+    executable: /bin/bash
+  environment:
+    PGPASSWORD: "{{ zabbix_proxy_db_password }}"
+  when: >
+    zabbix_proxy_db_engine == 'pgsql' and
+    zabbix_proxy_db_pgsql_created.changed
+  tags:
+    - zabbix_proxy_db
+
+- name: Import Zabbix DB schema for MySQL
+  shell: >
+    mysql
+    --user={{ zabbix_proxy_db_user }}
+    --password={{ zabbix_proxy_db_password }}
+    --host={{ zabbix_proxy_db_host }}
+    --port={{ zabbix_proxy_db_port }}
+    {{ zabbix_proxy_db_name }} < {{
+        zabbix_proxy_db_schema_dir ~ '/create/schema.sql',
+          if zabbix_proxy__db_create_dir.stat.exists
+          else
+        zabbix_proxy_db_schema_dir ~ '/schema.sql' }}
+  args:
+    executable: /bin/bash
+  when: >
+    zabbix_proxy_db_engine == 'mysql' and
+    zabbix_proxy_db_mysql_created.changed
+  tags:
+    - zabbix_proxy_db
+
+- name: Make sure the Zabbix Proxy service is enabled
+  service:
+    name: zabbix-proxy
+    enabled: yes
+  tags:
+    - zabbix_proxy_config
+
+- name: Make sure the Zabbix Proxy service is running
+  service:
+    name: zabbix-proxy
+    state: started
+  register: zabbix_proxy_service_started
+  tags:
+    - zabbix_proxy_config
+    - zabbix_proxy_pkg

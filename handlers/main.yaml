@@ -1,0 +1,9 @@
+---
+
+- name: Restart Zabbix Proxy
+  service:
+    name: zabbix-proxy
+    state: restarted
+  when: >
+    zabbix_proxy_service_started is not defined or
+    not zabbix_proxy_service_started.changed
