@@ -104,7 +104,7 @@
     - zabbix_proxy_db
 
 - name: Get the schema directory
-  shell: ls -1d {{ zabbix_proxy_db_schema_dir }}
+  shell: ls -1d {{ zabbix_proxy_db_schema_dir }} | tail -n1
   register: zabbix_proxy__db_schema_dir
   changed_when: false
   failed_when: false
